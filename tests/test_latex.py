@@ -1,8 +1,7 @@
 """latex is deployed to production now so I'll test it somewhat more rigorously."""
 
-from test_utils import *
-
 from simpy import *
+from simpy.debug.test_utils import *
 
 
 def assert_latex(expr: Expr, expected_latex: str):

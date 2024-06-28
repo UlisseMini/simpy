@@ -1,8 +1,8 @@
 from fractions import Fraction
 
 import pytest
-from test_utils import assert_eq_strict, unhashable_set_eq, x, y
 
+from simpy.debug.test_utils import assert_eq_strict, unhashable_set_eq, x, y
 from simpy.debug.utils import debug_repr
 from simpy.expr import *
 from simpy.integration import *
@@ -402,3 +402,10 @@ def test_power_abs():
     assert sqrt(x) ** 2 == x
     assert (x**6) ** Rat(1, 6) == abs(x)
     assert (x**3) ** Rat(1, 3) == x
+
+
+def test_trigfunctions_plusminuspi():
+    assert sin(x + pi) == -sin(x)
+    assert cos(x + pi) == -cos(x)
+    assert sin(x - pi) == -sin(x)
+    assert cos(x - pi) == -cos(x)

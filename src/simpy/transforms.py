@@ -22,6 +22,8 @@ from .expr import (
     cos,
     cot,
     csc,
+    e,
+    exp,
     log,
     remove_const_factor,
     sec,
@@ -33,7 +35,7 @@ from .expr import (
 from .integral_table import check_integral_table
 from .linalg import invert
 from .polynomial import Polynomial, is_polynomial, polynomial_to_expr, rid_ending_zeros, to_const_polynomial
-from .regex import count, general_contains, replace, replace_class, replace_factory
+from .regex import count, general_contains, general_count, replace, replace_class, replace_factory
 from .simplify import pythagorean_simplification
 from .simplify.product_to_sum import product_to_sum_unit
 from .utils import ExprFn, eq_with_var, random_id
@@ -935,8 +937,6 @@ class PartialFractions(Transform):
 class GenericUSub(USub):
     """Generic u-substitution"""
 
-    _u: Expr = None
-
     def check(self, node: Node) -> bool:
         if super().check(node) is False:
             return False
@@ -950,7 +950,7 @@ class GenericUSub(USub):
             integral = remove_const_factor(integral)
             # assume term appears only once in integrand
             # because node.expr is simplified
-            rest = Prod(node.expr.terms[:i] + node.expr.terms[i + 1 :])
+            rest = Prod(node.expr.terms[:i] + node.expr.terms[i + 1 :], skip_checks=True)
             if count(rest, integral) == count(rest, node.var) / count(integral, node.var):
                 self._u = integral
                 return True
@@ -962,7 +962,37 @@ class GenericUSub(USub):
         du_dx = self._u.diff(node.var)
         new_integrand = replace((node.expr / du_dx), self._u, intermediate)
         node.add_child(Node(new_integrand, intermediate, self, node))
-        self._u = self._u
+
+
+class ExponentialUSub(USub):
+    def check(self, node: Node) -> bool:
+        if super().check(node) is False:
+            return False
+
+        if not isinstance(node.expr, Prod):
+            return False
+
+        for i, term in enumerate(node.expr.terms):
+            if term == exp(node.var):
+                # now make sure all other occurances of x are in the exponent of an exp
+                # like it can be exp(2x) or smtn where it can be rewritten as exp(x)^2
+
+                rest = Prod(node.expr.terms[:i] + node.expr.terms[i + 1 :], skip_checks=True)
+                if count(rest, node.var) == general_count(
+                    rest,
+                    lambda x: isinstance(x, Power) and x.base == e and not (x.exponent / node.var).contains(node.var),
+                ):
+                    self._u = exp(node.var)
+                    self._rest = rest
+                    return True
+
+        return False
+
+    def forward(self, node: Node) -> None:
+        intermediate = generate_intermediate_var()
+        x_in_terms_of_u = log(intermediate)
+        new_integrand = replace(self._rest, node.var, x_in_terms_of_u)
+        node.add_child(Node(new_integrand, intermediate, self, node))
 
 
 class CompleteTheSquare(Transform):
@@ -1120,6 +1150,7 @@ HEURISTICS: List[Type[Transform]] = [
     RewritePythagorean,
     InverseTrigUSub,
     CompleteTheSquare,
+    ExponentialUSub,
     GenericUSub,
 ]
 SAFE_TRANSFORMS: List[Type[Transform]] = [

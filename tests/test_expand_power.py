@@ -1,6 +1,5 @@
-from test_utils import assert_eq_strict, unhashable_set_eq
-
 from simpy.combinatorics import generate_permutations
+from simpy.debug.test_utils import assert_eq_strict, unhashable_set_eq
 from simpy.expr import Prod, Sum, symbols
 
 

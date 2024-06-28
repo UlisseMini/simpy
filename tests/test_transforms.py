@@ -6,8 +6,8 @@ Don't want to disconnect code structure from meaning too much altho it's easy to
 """
 
 import numpy as np
-from test_utils import assert_eq_strict, x
 
+from simpy.debug.test_utils import assert_eq_strict, x
 from simpy.expr import Rat
 from simpy.transforms import CompleteTheSquare, Node, PolynomialDivision, PullConstant, to_const_polynomial
 

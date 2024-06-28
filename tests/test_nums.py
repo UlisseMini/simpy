@@ -1,17 +1,5 @@
-from test_utils import *
-
+from simpy.debug.test_utils import *
 from simpy.expr import *
-
-
-def eq_float(e1: Expr, e2: Expr, atol=1e-6):
-    if type(e1) != type(e2):
-        return False
-    if isinstance(e1, Float) and isinstance(e2, Float):
-        return abs(e1.value - e2.value) < atol
-
-    if not len(e1.children()) == len(e2.children()):
-        return False
-    return all(eq_float(c1, c2) for c1, c2 in zip(e1.children(), e2.children()))
 
 
 def test_infinity_basic_ops():

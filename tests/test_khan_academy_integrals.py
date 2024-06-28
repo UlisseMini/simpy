@@ -3,8 +3,7 @@ LOL im gonna take a bunch of integral questions from https://www.khanacademy.org
 and make sure simpy can do them
 """
 
-from test_utils import assert_definite_integral, assert_eq_plusc, assert_eq_value, assert_integral, x, y
-
+from simpy.debug.test_utils import assert_definite_integral, assert_eq_plusc, assert_eq_value, assert_integral, x, y
 from simpy.expr import *
 from simpy.integration import *
 
@@ -95,11 +94,17 @@ def test_misc():
     assert_integral(3 * x**5 - x**3 + 6, 6 * x - x**4 / 4 + x**6 / 2)
     assert_integral(x**3 * e ** (x**4), (e ** (x**4) / 4))
 
+    assert_definite_integral(8 * x / sqrt(1 - 4 * x**2), (0, Fraction(1, 4)), 2 - sqrt(3))
+    assert_definite_integral(sin(4 * x), (0, pi / 4), Fraction(1, 2))
+    assert_integral(exp(x) / (1 + exp(2 * x)), atan(exp(x)))
+
+
+def test_usub():
     # Uses generic u-sub
     assert_definite_integral(e**x / (1 + e**x), (log(2), log(8)), log(9) - log(3))
 
-    assert_definite_integral(8 * x / sqrt(1 - 4 * x**2), (0, Fraction(1, 4)), 2 - sqrt(3))
-    assert_definite_integral(sin(4 * x), (0, pi / 4), Fraction(1, 2))
+    # ideally have this work with just log(x)
+    assert_definite_integral(log(abs(x)) ** 2 / x, bounds=(1, e), expected=Rat(1, 3))
 
 
 def test_csc_x_squared():
@@ -141,6 +146,8 @@ def test_complete_the_square_integrals():
     assert_integral(1 / (3 * x**2 + 6 * x + 78), atan((1 + x) / 5) / 15)
     assert_integral(1 / (x**2 - 8 * x + 65), atan((-4 + x) / 7) / 7)
     assert_integral(1 / sqrt(-(x**2) - 6 * x + 40), asin((3 + x) / 7))
+
+    assert_definite_integral(1 / (1 + 9 * x**2), (-Rat(1, 3), Rat(1, 3)), expected=pi / 6)
 
 
 def test_neg_inf():
@@ -202,3 +209,19 @@ def test_more_complicated_trig():
     expr = tan(x) ** 5 * sec(x) ** 4
     expected_ans = tan(x) ** 6 / 6 + tan(x) ** 8 / 8
     assert_integral(expr, expected_ans)
+
+
+def test_abs():
+    expr = abs(-2 * x + 4)
+    assert_definite_integral(expr, bounds=(-2, 4), expected=20)
+
+
+def test_piecewise():
+    expr = Piecewise((9 * sqrt(x), 0, inf), (-2 * x, -inf, 0), var=x)
+    assert_definite_integral(expr, bounds=(-3, 1), expected=15)
+
+    expr = Piecewise((3 * x**2 - 1, 0, inf), (6 * x - 1, -inf, 0), var=x)
+    assert_definite_integral(expr, bounds=(-1, 1), expected=-4)
+
+    expr = Piecewise((1 / x, 1, inf), (x, -inf, 1), var=x)
+    assert_definite_integral(expr, bounds=(0, 3), expected=log(3) + Rat(1, 2))

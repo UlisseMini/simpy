@@ -1,7 +1,7 @@
 from typing import Optional, Tuple, Union
 
 from simpy.debug.utils import debug_repr
-from simpy.expr import Expr, Symbol, TrigFunctionNotInverse, cast, log, symbols
+from simpy.expr import Expr, Float, Symbol, TrigFunctionNotInverse, cast, log, symbols
 from simpy.integration import integrate
 from simpy.simplify import expand_logs, trig_simplify
 
@@ -83,3 +83,14 @@ def unhashable_set_eq(a: list, b: list) -> bool:
         if el not in a:
             return False
     return True
+
+
+def eq_float(e1: Expr, e2: Expr, atol=1e-6):
+    if type(e1) != type(e2):
+        return False
+    if isinstance(e1, Float) and isinstance(e2, Float):
+        return abs(e1.value - e2.value) < atol
+
+    if not len(e1.children()) == len(e2.children()):
+        return False
+    return all(eq_float(c1, c2) for c1, c2 in zip(e1.children(), e2.children()))

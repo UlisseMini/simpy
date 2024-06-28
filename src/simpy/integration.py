@@ -6,7 +6,8 @@ import warnings
 from typing import Callable, List, Literal, Tuple, Union
 
 from .debug.tree import print_solution_tree, print_tree
-from .expr import Expr, Optional, Symbol, cast, nesting
+from .equation import Equation, solve
+from .expr import Abs, Expr, Optional, Piece, Piecewise, Sum, Symbol, cast, nesting
 from .integral_table import check_integral_table
 from .transforms import HEURISTICS, SAFE_TRANSFORMS, Node
 
@@ -123,6 +124,43 @@ class Integration:
     def integrate_bounds(self, expr: Expr, bounds: Tuple[Symbol, Expr, Expr]) -> Optional[Expr]:
         """Performs definite integral."""
         x, a, b = bounds
+
+        if isinstance(expr, Piecewise):
+            assert a.symbolless
+            assert b.symbolless
+            assert all(p.lower_bound.value.symbolless and p.upper_bound.value.symbolless for p in expr.pieces)
+
+            total = []
+            for piece in expr.pieces:
+                if piece.lower_bound.value.evalf() >= b.evalf() or piece.upper_bound.value.evalf() <= a.evalf():
+                    continue
+                ans = self.integrate_bounds(
+                    piece.expr, (x, max(a, piece.lower_bound.value), min(b, piece.upper_bound.value))
+                )
+                if ans is None:
+                    return None
+                total.append(ans)
+
+            return Sum(total)
+
+        if isinstance(expr, Abs):
+            # it's tricky because you have to identify the x-value where expr.inner = 0
+            # and then split the integral at that point.
+            critical_x_value = solve(Equation(expr.inner, 0), x)
+            assert a.symbolless
+            assert b.symbolless
+            assert critical_x_value.symbolless
+
+            # ok this assumes a < b
+            if critical_x_value <= a:
+                return self.integrate_bounds(expr.inner, (x, a, b))
+            if critical_x_value >= b:
+                return self.integrate_bounds(-expr.inner, (x, a, b))
+
+            return self.integrate_bounds(expr.inner, (x, a, critical_x_value)) + self.integrate_bounds(
+                -expr.inner, (x, critical_x_value, b)
+            )
+
         integral = self.integrate(expr, bounds[0], final=False)
         if integral is None:
             return None
@@ -233,6 +271,12 @@ class Integration:
 
     def integrate(self, integrand: Expr, var: Symbol, final=True) -> Optional[Expr]:
         """Performs indefinite integral."""
+        if isinstance(integrand, Piecewise):
+            return Piecewise(
+                *[Piece(self.integrate(p.expr, var), p.lower_bound, p.upper_bound) for p in integrand.pieces],
+                var=integrand.var,
+            )
+
         root = Node(integrand.simplify(), var)
         _integrate_safely(root)
         curr_node = root

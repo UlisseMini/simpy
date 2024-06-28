@@ -1,6 +1,5 @@
-from test_utils import *
-
 from simpy import *
+from simpy.debug.test_utils import *
 from simpy.simplify.product_to_sum import *
 
 

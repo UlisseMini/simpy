@@ -1,6 +1,6 @@
 import pytest
-from test_utils import x, y
 
+from simpy.debug.test_utils import x, y
 from simpy.expr import *
 from simpy.regex import Any_, any_, eq
 

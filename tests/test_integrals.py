@@ -1,4 +1,4 @@
-from test_utils import (
+from simpy.debug.test_utils import (
     assert_definite_integral,
     assert_eq_plusc,
     assert_eq_strict,
@@ -7,7 +7,6 @@ from test_utils import (
     x,
     y,
 )
-
 from simpy.expr import *
 from simpy.integration import *
 

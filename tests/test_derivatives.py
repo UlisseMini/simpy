@@ -1,5 +1,4 @@
-from test_utils import assert_eq_strict, assert_eq_value, x, y
-
+from simpy.debug.test_utils import assert_eq_strict, assert_eq_value, x, y
 from simpy.expr import *
 
 

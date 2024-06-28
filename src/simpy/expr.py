@@ -20,7 +20,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
 from fractions import Fraction
 from functools import cmp_to_key, reduce
-from typing import Callable, Dict, List, Literal, Optional, Tuple, Type, Union
+from typing import Callable, Dict, List, Literal, NamedTuple, Optional, Tuple, Type, Union
 
 from .combinatorics import generate_permutations, multinomial_coefficient
 
@@ -124,6 +124,7 @@ class Expr(ABC):
 
         # Experimental & not guaranteed to be robust so it's private API for now.
         self._strictly_positive = False
+        self._is_int = False
 
     def simplify(self) -> "Expr":
         from .simplify import simplify
@@ -272,6 +273,15 @@ class Expr(ABC):
     def is_int(self) -> bool:
         """Returns True if the expression is an integer."""
         return False
+
+    @property
+    def symbolless(self) -> bool:
+        return len(self.symbols()) == 0
+
+    def as_terms(self):
+        if isinstance(self, Sum):
+            return self.terms
+        return [self]
 
 
 @dataclass
@@ -479,6 +489,7 @@ class Float(Num, Expr):
 
     def __init__(self, value):
         self.value = value
+        super().__post_init__()
 
     def latex(self):
         return repr(self)
@@ -794,7 +805,7 @@ class Symbol(Expr):
         return subs.get(self.name, self)
 
     def _evalf(self, subs):
-        return super()._evalf()
+        return subs.get(self.name, self)
 
     def diff(self, var) -> Rat:
         return Rat(1) if self == var else Rat(0)
@@ -1152,6 +1163,11 @@ class Prod(Associative, Expr):
                 return terms[0]
             return super().__new__(cls)
 
+        if any(isinstance(t, Piecewise) for t in terms):
+            piecewise = [t for t in terms if isinstance(t, Piecewise)][0]
+            other_terms = [t for t in terms if not isinstance(t, Piecewise)]
+            return piecewise * Prod(other_terms)
+
         # We need to flatten BEFORE we accumulate like terms
         # ex: Prod(x, Prod(Power(x, -1), y))
         terms = _cast(terms)
@@ -1341,6 +1357,10 @@ def _multiply_exponents(b: Expr, x1: Expr, x2: Expr) -> Expr:
             return Abs(b)
 
     return b ** (x1 * x2)
+
+
+def exp(x: Expr) -> Expr:
+    return e**x
 
 
 @dataclass
@@ -1657,6 +1677,8 @@ TrigStr = Literal["sin", "cos", "tan", "sec", "csc", "cot"]
 class TrigFunction(SingleFunc, ABC):
     is_inverse: bool  # class property
     _fields_already_casted = True
+    _odd = False
+    _even = False
 
     _SPECIAL_KEYS = [
         "0",
@@ -1748,6 +1770,9 @@ class TrigFunction(SingleFunc, ABC):
                 if str(pi_coeff.value) in cls._SPECIAL_KEYS:
                     return cls.special_values[str(pi_coeff.value)]
 
+            if (pi_coeff / 2)._is_int:
+                return cls.special_values["0"]
+
             # check if inner has ... a 2pi term in a sum
             if isinstance(inner, Sum):
                 for t in inner.terms:
@@ -1757,6 +1782,12 @@ class TrigFunction(SingleFunc, ABC):
                             instance = super().__new__(cls)
                             instance.inner = inner - t
                             return instance
+
+        # Odd and even shit
+        if cls._odd and inner.is_subtraction:
+            return -cls(-inner)
+        if cls._even and inner.is_subtraction:
+            return cls(-inner)
 
         # 2. Check if inner is trigfunction
         # things like sin(cos(x)) cannot be more simplified.
@@ -1823,6 +1854,7 @@ class TrigFunctionNotInverse(TrigFunction, ABC):
 class sin(TrigFunctionNotInverse):
     func = "sin"
     _func = math.sin
+    _odd = True
 
     @classproperty
     def reciprocal_class(cls):
@@ -1854,14 +1886,25 @@ class sin(TrigFunctionNotInverse):
 
     @cast
     def __new__(cls, inner: Expr) -> Expr:
-        if inner.is_subtraction:
-            return -sin(-inner)
-        return super().__new__(cls, inner)
+        new = super().__new__(cls, inner)
+        if not isinstance(new, sin):
+            return new
+        if isinstance(new.inner, Sum):
+            for t in new.inner.terms:
+                if t == pi or t == -pi:
+                    return -sin(new.inner - t)
+
+        # sin(n * pi) = 0
+        if new.inner.has(Pi) and (new.inner / pi)._is_int:
+            return Rat(0)
+
+        return new
 
 
 class cos(TrigFunctionNotInverse):
     func = "cos"
     _func = math.cos
+    _even = True
 
     @classproperty
     def reciprocal_class(cls):
@@ -1898,8 +1941,10 @@ class cos(TrigFunctionNotInverse):
         new = super().__new__(cls, inner)
         if not isinstance(new, cos):
             return new
-        if inner.is_subtraction:
-            new.inner = -inner
+        if isinstance(new.inner, Sum):
+            for t in new.inner.terms:
+                if t == pi or t == -pi:
+                    return -cos(new.inner - t)
         return new
 
 
@@ -1907,16 +1952,11 @@ class tan(TrigFunctionNotInverse):
     func = "tan"
     _func = math.tan
     _period = 1
+    _odd = True
 
     @classproperty
     def reciprocal_class(cls):
         return cot
-
-    @cast
-    def __new__(cls, inner: Expr) -> Expr:
-        if inner.is_subtraction:
-            return -tan(-inner)
-        return super().__new__(cls, inner)
 
     @classproperty
     def _special_values(cls):
@@ -1930,6 +1970,7 @@ class csc(TrigFunctionNotInverse):
     func = "csc"
     _func = lambda x: 1 / math.sin(x)
     reciprocal_class = sin
+    _odd = True
 
     @classproperty
     def _special_values(cls):
@@ -1943,6 +1984,7 @@ class sec(TrigFunctionNotInverse):
     func = "sec"
     _func = lambda x: 1 / math.cos(x)
     reciprocal_class = cos
+    _even = True
 
     @classproperty
     def _special_values(cls):
@@ -1957,6 +1999,7 @@ class cot(TrigFunctionNotInverse):
     func = "cot"
     _func = lambda x: 1 / math.tan(x)
     _period = 1
+    _odd = True
 
     @classproperty
     def _special_values(cls):
@@ -1970,6 +2013,7 @@ class asin(TrigFunction):
     func = "sin"
     is_inverse = True
     _func = math.asin
+    _odd = True
 
     def diff(self, var):
         return 1 / sqrt(1 - self.inner**2) * self.inner.diff(var)
@@ -1996,6 +2040,14 @@ class atan(TrigFunction):
     func = "tan"
     is_inverse = True
     _func = math.atan
+    _odd = True
+
+    def __new__(cls, inner):
+        # TODO: standardize special value for inverse trig functions
+        if inner == 1:
+            return pi / 4
+
+        return super().__new__(cls, inner)
 
     def diff(self, var):
         return 1 / (1 + self.inner**2) * self.inner.diff(var)
@@ -2107,3 +2159,128 @@ def remove_const_factor(expr: Expr, include_factor=False) -> Expr:
 
 def latex(expr: Expr) -> str:
     return expr.latex()
+
+
+class Bound(NamedTuple):
+    value: Expr
+    inclusive: bool
+
+
+@dataclass
+class Piece:
+    expr: Expr
+    lower_bound: Bound
+    upper_bound: Bound
+
+    def __post_init__(self):
+        if self.expr.has(Piecewise):
+            raise ValueError("Piecewise functions cannot be nested.")
+
+    def __repr__(self) -> str:
+        return f"{self.lower_bound.value} <= x < {self.upper_bound.value}: {self.expr}"
+
+
+class Piecewise(Expr):
+    pieces: List[Piece]
+
+    def __init__(self, *args: List[Tuple[Expr, Expr, Expr]], var: Symbol = None):
+        pieces = []
+        for arg in args:
+            if isinstance(arg, Piece):
+                pieces.append(arg)
+                continue
+
+            pieces.append(Piece(_cast(arg[0]), Bound(_cast(arg[1]), True), Bound(_cast(arg[2]), False)))
+        self.pieces = pieces
+        self.var = var
+
+    def __repr__(self) -> str:
+        return (
+            "Piecewise("
+            + ", ".join([f"{f.lower_bound.value} <= x < {f.upper_bound.value}: {f.expr}" for f in self.pieces])
+            + ")"
+        )
+        # return "Piecewise(...)"
+
+    def latex(self) -> str:
+        return (
+            "\\begin{cases} "
+            + " \\\\ ".join([f"{f.lower_bound.value} \\leq x < {f.upper_bound.value}: {f.expr}" for f in self.pieces])
+            + " \\end{cases}"
+        )
+
+    def _evalf(self, subs) -> "Piecewise":
+        return Piecewise(*[Piece(p.expr._evalf(subs), p.lower_bound, p.upper_bound) for p in self.pieces])
+
+    def children(self) -> List[Expr]:
+        return [p.expr for p in self.pieces]
+
+    def diff(self, var) -> "Piecewise":
+        return Piecewise(*[Piece(p.expr.diff(var), p.lower_bound, p.upper_bound) for p in self.pieces])
+
+    def subs(self, subs) -> "Piecewise":
+        return Piecewise(*[Piece(p.expr.subs(subs), p.lower_bound, p.upper_bound) for p in self.pieces])
+
+    def __add__(self, other: Expr) -> "Piecewise":
+        return self._operate(other, fn=lambda x, y: x + y)
+
+    def _operate(self, other: Expr, fn) -> "Piecewise":
+        if not isinstance(other, Piecewise):
+            return Piecewise(*[Piece(fn(p.expr, other), p.lower_bound, p.upper_bound) for p in self.pieces])
+
+        if self.var != other.var:
+            raise NotImplementedError
+        if len(self.pieces) != len(other.pieces):
+            raise NotImplementedError
+
+        pieces = []
+        for p1, p2 in zip(self.pieces, other.pieces):
+            if p1.lower_bound != p2.lower_bound or p1.upper_bound != p2.upper_bound:
+                raise NotImplementedError
+            pieces.append(Piece(fn(p1.expr, p2.expr), p1.lower_bound, p1.upper_bound))
+
+        return Piecewise(*pieces, var=self.var)
+
+    def __radd__(self, other: Expr) -> "Piecewise":
+        return self + other
+
+    def __sub__(self, other: Expr) -> "Piecewise":
+        return self._operate(other, fn=lambda x, y: x - y)
+
+    def __rsub__(self, other: Expr) -> "Piecewise":
+        return -self + other
+
+    def __mul__(self, other: Expr) -> "Piecewise":
+        return self._operate(other, fn=lambda x, y: x * y)
+
+    def __rmul__(self, other: Expr) -> "Piecewise":
+        return self * other
+
+    def __truediv__(self, other: Expr) -> "Piecewise":
+        return self._operate(other, fn=lambda x, y: x / y)
+
+    def __rtruediv__(self, other: Expr) -> "Piecewise":
+        return self**-1 * other
+
+    def __neg__(self) -> "Piecewise":
+        # neg each expr
+        return Piecewise(*[Piece(-p.expr, p.lower_bound, p.upper_bound) for p in self.pieces])
+
+    def __pow__(self, other: Expr) -> "Piecewise":
+        return self._operate(other, fn=lambda x, y: x**y)
+
+    def __rpow__(self, other: Expr) -> "Piecewise":
+        return self._operate(other, fn=lambda x, y: y**x)
+
+    def __eq__(self, other: Expr) -> bool:
+        if not isinstance(other, Piecewise):
+            return False
+        if len(self.pieces) != len(other.pieces):
+            return False
+        for p1, p2 in zip(self.pieces, other.pieces):
+            if p1.lower_bound != p2.lower_bound or p1.upper_bound != p2.upper_bound or p1.expr != p2.expr:
+                return False
+        return True
+
+    def __ne__(self, other: Expr) -> bool:
+        return not self == other
